@@ -21,6 +21,7 @@ GOSSIP="self="
 if [ "$PEER_NODES" ]; then
   GOSSIP="tcp=${PEER_NODES}"
   echo peers $PEER_NODES
+  rm /store/*.log /store/CURRENT /store/IDENTITY /store/LOCK /store/MANIFEST*
 fi
 
 echo gossip $GOSSIP
