@@ -1,0 +1,8 @@
+This image will run cockroachdb inside kubernetes
+
+These environments variable should be provided
+- KUBE_MASTER the address of kuberentes master, should not be a https
+- SELECTOR the selector for the cockroach peers
+- IDENTITY the IDENTITY file from the stores
+
+The main store is ssd, To replace it, mount on /store dir
