@@ -2,32 +2,32 @@
 
 set -e
 
-if [ ! "$KUBE_MASTER" ]; then 
-  echo env KUBE_MASTER is required
-  exit 1
-fi
+echo ip `hostname -i`
 
-if [ ! "$SELECTOR" ]; then 
-  echo env SELECTOR is required
-  exit 1
-fi
+GOSSIP="self"
 
-ROACH_ADDRESS=`ifconfig eth0|grep 'inet addr'|cut -d: -f2| awk '{print $1}'`
-
-PEER_NODES=`wget $KUBE_MASTER/api/v1/pods?labelSelector=$SELECTOR -qO -|grep podIP|grep -v $ROACH_ADDRESS|awk '{print $2}'|sed 's/"//g'|sed 's/,/:8080/'|xargs echo`
-PEER_NODES=`echo $PEER_NODES|sed 's/ /,/'`
-
-GOSSIP="self="
-if [ "$PEER_NODES" ]; then
-  GOSSIP="tcp=${PEER_NODES}"
-  echo peers $PEER_NODES
-  rm /store/*.log /store/CURRENT /store/IDENTITY /store/LOCK /store/MANIFEST*
+if [ "$SELECTOR" ]; then
+  echo selector $SELECTOR
+  PEER_NODES=$(curl -s \
+    --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt \
+    -H "Authorization: Bearer `cat /run/secrets/kubernetes.io/serviceaccount/token`" \
+    https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/api/v1/pods?labelSelector=$SELECTOR \
+    | grep podIP | grep -v `hostname -i` |awk '{print $2}'|sed 's/"//g' | sed 's/,/:26257/' | xargs echo)
+  if [ "$PEER_NODES" ]; then
+    GOSSIP="tcp=$PEER_NODES"
+    echo peers $PEER_NODES
+  fi
 fi
 
 echo gossip $GOSSIP
 
-if [ "$ROACH_IDENDITY" ]; then 
-  echo "$ROACH_IDENDITY" > /store/IDENTITY
+if [ "$GOSSIP" == "self"]; then
+  /cockroach/cockroach init --stores=ssd=/store
 fi
 
-exec /cockroach/cockroach start --addr=${ROACH_ADDRESS}:8080 --gossip=${GOSSIP} $@ 
+exec /cockroach/cockroach start \
+  --stores=ssd=/store \
+  --host=`hostname -i` \
+  --gossip=$GOSSIP \
+  $@
+
