@@ -1,38 +1,50 @@
 #!/bin/sh
 
-if [ ! "$NAMESPACE" ]; then
-  >&2 echo \$NAMESPACE variable required
-  exit 1
+# set -e
+
+HOST=${HOST:-`hostname -i`}
+
+if [ -n "$DOMAIN" ]; then
+  HOST="`hostname -i|sed 's/\./-/g'`.$DOMAIN"
+fi
+ 
+JOIN=""
+BASE_URL="https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT"
+
+QUERY_URL="$BASE_URL/api/v1"
+if [ -n "$POD_NAMESPACE" ]; then
+  QUERY_URL="$QUERY_URL/namespaces/$POD_NAMESPACE"
 fi
 
-set -e
+TOKEN=`cat /run/secrets/kubernetes.io/serviceaccount/token`
 
-echo ip `hostname -i`
+_curl() {
+  curl -s --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt --header "Authorization: Bearer $TOKEN" $@
+}
 
-GOSSIP="self"
 
 if [ "$SELECTOR" ]; then
-  echo selector $SELECTOR
-  PEER_NODES=$(curl -s \
-    --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt \
-    -H "Authorization: Bearer `cat /run/secrets/kubernetes.io/serviceaccount/token`" \
-    https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/api/v1/namespaces/$NAMESPACE/pods?labelSelector=$SELECTOR \
-    | grep podIP | grep -v `hostname -i` |awk '{print $2}'|sed 's/"//g' | sed 's/,/:26257/' | xargs echo)
+  URL="$QUERY_URL/pods?labelSelector=$SELECTOR"
+
+  for pod in `_curl $URL | grep selfLink | grep -v "$POD_NAME" | grep -Eo '/api[^"]*'`; do
+    PEER_NAMESPACE=`echo $pod | cut -d/ -f5`
+    PEER_NAME=`echo $pod | cut -d/ -f7`
+    if [ "$PEER_NAME" ]; then
+      POD_IP=`_curl $BASE_URL$pod| grep podIP |awk '{print $2}'|sed 's/[",]//g' | sed 's/\./-/g'`
+      PEER_NODES="$PEER_NODES,$POD_IP.$PEER_NAMESPACE.pod.$CLUSTER_DOMAIN"
+    fi
+  done
   if [ "$PEER_NODES" ]; then
-    GOSSIP="tcp=$PEER_NODES"
-    echo peers $PEER_NODES
+    JOIN="--join=$PEER_NODES"
   fi
 fi
 
-echo gossip $GOSSIP
-
-if [ "$GOSSIP" == "self"]; then
-  /cockroach/cockroach init --stores=ssd=/store
-fi
+echo name=$POD_NAME host=$HOST $JOIN
 
 exec /cockroach/cockroach start \
   --stores=ssd=/store \
-  --host=`hostname -i` \
-  --gossip=$GOSSIP \
+  --host=$HOST \
+  $JOIN \
   $@
+
 
