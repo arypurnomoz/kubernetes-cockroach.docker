@@ -31,7 +31,9 @@ if [ "$SELECTOR" ]; then
     PEER_NAME=`echo $pod | cut -d/ -f7`
     if [ "$PEER_NAME" ]; then
       POD_IP=`_curl $BASE_URL$pod| grep podIP |awk '{print $2}'|sed 's/[",]//g' | sed 's/\./-/g'`
-      PEER_NODES="$PEER_NODES,$POD_IP.$PEER_NAMESPACE.pod.$CLUSTER_DOMAIN"
+      if [ "$POD_IP" ]; then
+        PEER_NODES="$PEER_NODES,$POD_IP.$PEER_NAMESPACE.pod.$CLUSTER_DOMAIN"
+      fi
     fi
   done
   if [ "$PEER_NODES" ]; then
